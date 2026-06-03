@@ -17,7 +17,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Student, Subject } from '../types';
-import { calculateStudentGPP, checkLayakSijil } from '../utils';
+import { calculateStudentGPP, checkLayakSijil, getExams } from '../utils';
 
 interface StudentDatabaseProps {
   students: Student[];
@@ -301,40 +301,37 @@ export default function StudentDatabase({
                 <tr className="border-b border-slate-200 text-slate-400 text-[10px] font-black uppercase tracking-widest bg-slate-50/40">
                   <th className="py-3 px-4">Nama Murid</th>
                   <th className="py-3 px-4">Kelas</th>
-                  <th className="py-3 px-3 text-center text-slate-500 font-extrabold">TOV</th>
-                  <th className="py-3 px-3 text-center text-blue-500 font-bold">OTR 1</th>
-                  <th className="py-3 px-3 text-center text-blue-800 font-black">AR 1 (PPT T5)</th>
-                  <th className="py-3 px-3 text-center text-emerald-500 font-bold">OTR 2</th>
-                  <th className="py-3 px-3 text-center text-emerald-800 font-black">AR 2 (Prcb)</th>
-                  <th className="py-3 px-3 text-center text-slate-450 font-bold">PPT T4</th>
-                  <th className="py-3 px-3 text-center text-emerald-600 font-black">ETR</th>
+                  {getExams().map(exam => {
+                    let colorClass = "text-slate-500 font-extrabold";
+                    if (exam.id.startsWith('ar')) colorClass = "text-blue-800 font-black";
+                    else if (exam.id === 'etr') colorClass = "text-emerald-600 font-black";
+                    else if (exam.id.startsWith('otr')) colorClass = "text-blue-500 font-bold";
+                    return (
+                      <th key={exam.id} className={`py-3 px-3 text-center ${colorClass}`}>
+                        {exam.label}
+                      </th>
+                    );
+                  })}
                   <th className="py-3 px-4 text-center">Syarat Sijil T5 (AR1)</th>
                   <th className="py-3 px-4 text-right">Tindakan Pelan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredStudents.map((student, idx) => {
-                  // Cert based on AR1 (PPT T5) or PPT T4 if AR1 not set
+                  // Cert based on AR1 (PPT T5) or TOV if AR1 not set
                   const hasAr1 = student.scores.find(s => s.subjectId === '1103')?.ar1 !== undefined;
-                  const cert = checkLayakSijil(student, hasAr1 ? 'ar1' : 'ppt');
+                  const cert = checkLayakSijil(student, hasAr1 ? 'ar1' : 'tov');
                   
-                  const formatScore = (val: number | undefined | null) => {
+                  const formatScore = (val: number | undefined | null, isPptOrEtr = false) => {
                     if (val === undefined || val === null) return '';
-                    if (val === -1) return 'TH';
+                    if (val === -1) return isPptOrEtr ? '' : 'TH';
                     return val.toString();
                   };
 
                   const scoreEntry = student.scores.find(s => s.subjectId === selectedSubjectId);
-                  const tovVal = scoreEntry ? formatScore(scoreEntry.tov) : '';
-                  const otr1Val = scoreEntry ? formatScore(scoreEntry.otr1) : '';
-                  const ar1Val = scoreEntry ? formatScore(scoreEntry.ar1) : '';
-                  const otr2Val = scoreEntry ? formatScore(scoreEntry.otr2) : '';
-                  const ar2Val = scoreEntry ? formatScore(scoreEntry.ar2) : '';
-                  const pptVal = scoreEntry ? formatScore(scoreEntry.ppt) : '';
-                  const etrVal = scoreEntry ? formatScore(scoreEntry.etr) : '';
 
                   const renderCell = (val: string, colorClass: string = "text-slate-800") => {
-                    if (val === '') return <span className="text-slate-300">-</span>;
+                    if (val === '') return null;
                     if (val === 'TH') {
                       return <span className="text-rose-600 font-black bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded text-[10px]">TH</span>;
                     }
@@ -366,28 +363,20 @@ export default function StudentDatabase({
                         </span>
                       </td>
 
-                      {/* Score values */}
-                      <td className="py-3.5 px-3 text-center">
-                        {renderCell(tovVal, "text-slate-500 font-semibold")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center">
-                        {renderCell(otr1Val, "text-blue-500 font-semibold")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center bg-blue-50/10">
-                        {renderCell(ar1Val, "text-blue-800 font-extrabold")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center">
-                        {renderCell(otr2Val, "text-emerald-500 font-semibold")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center bg-emerald-50/10">
-                        {renderCell(ar2Val, "text-emerald-800 font-extrabold")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center">
-                        {renderCell(pptVal, "text-slate-450")}
-                      </td>
-                      <td className="py-3.5 px-3 text-center bg-emerald-50/5">
-                        {renderCell(etrVal, "text-emerald-600 font-black")}
-                      </td>
+                      {/* Dynamic Score values */}
+                      {getExams().map(exam => {
+                        const scoreVal = scoreEntry ? formatScore(scoreEntry[exam.id], exam.id !== 'tov') : '';
+                        let colorClass = "text-slate-500 font-semibold";
+                        if (exam.id.startsWith('ar')) colorClass = "text-blue-800 font-extrabold";
+                        if (exam.id === 'etr') colorClass = "text-emerald-600 font-black";
+                        else if (exam.id.startsWith('otr')) colorClass = "text-blue-500 font-semibold";
+                        const bgClass = exam.id.startsWith('ar') ? 'bg-blue-50/10' : exam.id === 'etr' ? 'bg-emerald-50/5' : '';
+                        return (
+                          <td key={exam.id} className={`py-3.5 px-3 text-center ${bgClass}`}>
+                            {renderCell(scoreVal, colorClass)}
+                          </td>
+                        );
+                      })}
 
                       {/* Certificate status */}
                       <td className="py-3.5 px-4 text-center">

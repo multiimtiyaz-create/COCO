@@ -20,7 +20,7 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { Student, Subject, ExamType, calculateGrade, getGradeColor } from '../types';
-import { calculateGPMP, getSubjectGradeDistribution } from '../utils';
+import { calculateGPMP, getSubjectGradeDistribution, getExams } from '../utils';
 
 interface SubjectAnalysisProps {
   students: Student[];
@@ -30,7 +30,7 @@ interface SubjectAnalysisProps {
 
 export default function SubjectAnalysis({ students, subjects, onSelectStudent }: SubjectAnalysisProps) {
   const [selectedSubId, setSelectedSubId] = useState(subjects[0]?.id || '1103');
-  const [examPhase, setExamPhase] = useState<ExamType>('ar1');
+  const [examPhase, setExamPhase] = useState<string>('ar1');
 
   const activeSubject = subjects.find(s => s.id === selectedSubId) || subjects[0];
 
@@ -77,15 +77,15 @@ export default function SubjectAnalysis({ students, subjects, onSelectStudent }:
       const scoreObj = student.scores.find(s => s.subjectId === selectedSubId);
       if (scoreObj) {
         const score = scoreObj[phase];
-        if (score === -1) absent++;
-        else if (score >= 40) {
-          lulus++;
-          if (score >= 70) cemerlang++;
-        } else {
-          gagal++;
+        if (score !== undefined && score !== null) {
+          if (score === -1) absent++;
+          else if (score >= 40) {
+            lulus++;
+            if (score >= 70) cemerlang++;
+          } else {
+            gagal++;
+          }
         }
-      } else {
-        absent++;
       }
     });
 
@@ -118,14 +118,18 @@ export default function SubjectAnalysis({ students, subjects, onSelectStudent }:
   const studentsRanked = studentSubjectList
     .map(student => {
       const scoreObj = student.scores.find(s => s.subjectId === selectedSubId);
-      const val = scoreObj ? (scoreObj[examPhase] ?? -1) : -1;
+      const val = scoreObj ? (scoreObj[examPhase] ?? null) : null;
       return {
         student,
         score: val,
         grade: calculateGrade(val)
       };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      const scoreA = a.score === null || a.score === undefined ? -2 : a.score;
+      const scoreB = b.score === null || b.score === undefined ? -2 : b.score;
+      return scoreB - scoreA;
+    });
 
   return (
     <div className="space-y-6">
@@ -192,18 +196,10 @@ export default function SubjectAnalysis({ students, subjects, onSelectStudent }:
               
               {/* Exam Phase switcher */}
               <div className="bg-slate-100 p-0.5 rounded-lg flex flex-wrap gap-0.5">
-                {([
-                  { id: 'tov', label: 'TOV' },
-                  { id: 'otr1', label: 'OTR1' },
-                  { id: 'ar1', label: 'AR1 (PPT T5)' },
-                  { id: 'otr2', label: 'OTR2' },
-                  { id: 'ar2', label: 'AR2 (Prc)' },
-                  { id: 'ppt', label: 'PPT T4' },
-                  { id: 'etr', label: 'ETR' }
-                ]).map(p => (
+                {getExams().map(p => (
                   <button
                     key={p.id}
-                    onClick={() => setExamPhase(p.id as ExamType)}
+                    onClick={() => setExamPhase(p.id)}
                     className={`px-1.5 py-0.5 rounded text-[8px] uppercase font-mono font-black transition-all ${
                       examPhase === p.id ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
                     }`}
@@ -279,7 +275,6 @@ export default function SubjectAnalysis({ students, subjects, onSelectStudent }:
                 <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px' }} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
                 <Bar dataKey="TOV" name="TOV" fill="#94a3b8" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="PPT" name="PPT T4" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="AR1" name="AR 1 (PPT T5)" fill="#6366f1" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="AR2" name="AR 2 (Trial)" fill="#f59e0b" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="ETR" name="ETR Sasaran" fill="#10b981" radius={[2, 2, 0, 0]} />
@@ -308,10 +303,14 @@ export default function SubjectAnalysis({ students, subjects, onSelectStudent }:
                     <span className="text-xs font-bold text-slate-700 line-clamp-1">{item.student.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-extrabold text-slate-800">{item.score === -1 ? 'TH' : `${item.score}%`}</span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none ${getGradeColor(item.grade)}`}>
-                      {item.grade}
+                    <span className="text-xs font-extrabold text-slate-800">
+                      {item.score === null || item.score === undefined || (item.score === -1 && ['ppt', 'etr', 'otr1', 'ar1', 'otr2', 'ar2'].includes(examPhase)) ? '-' : item.score === -1 ? 'TH' : `${item.score}%`}
                     </span>
+                    {item.grade !== '' && !(item.grade as string === 'TH' && examPhase !== 'tov') && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none ${getGradeColor(item.grade)}`}>
+                        {item.grade}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,4 +1,4 @@
-export type Grade = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'C+' | 'C' | 'D' | 'E' | 'G' | 'TH';
+export type Grade = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'C+' | 'C' | 'D' | 'E' | 'G' | 'TH' | '';
 
 export interface Subject {
   id: string;
@@ -11,13 +11,14 @@ export type ExamType = 'tov' | 'otr1' | 'ar1' | 'otr2' | 'ar2' | 'ppt' | 'etr';
 
 export interface StudentSubjectScore {
   subjectId: string;
-  tov: number; // 0-100, -1 for TH (Tidak Hadir)
-  otr1?: number; // 0-100, -1 for TH
-  ar1?: number; // 0-100, -1 for TH
-  otr2?: number; // 0-100, -1 for TH
-  ar2?: number; // 0-100, -1 for TH
-  ppt: number; // 0-100, -1 for TH
-  etr: number; // 0-100, -1 for TH
+  tov?: number | null; // 0-100, -1 for TH (Tidak Hadir), null/undefined for empty
+  otr1?: number | null; // 0-100, -1 for TH
+  ar1?: number | null; // 0-100, -1 for TH
+  otr2?: number | null; // 0-100, -1 for TH
+  ar2?: number | null; // 0-100, -1 for TH
+  ppt?: number | null; // 0-100, -1 for TH
+  etr?: number | null; // 0-100, -1 for TH
+  [key: string]: any;
 }
 
 export interface Student {
@@ -41,7 +42,8 @@ export interface Teacher {
 }
 
 // Map marks to SPM Grade
-export function calculateGrade(score: number): Grade {
+export function calculateGrade(score: number | undefined | null): Grade {
+  if (score === undefined || score === null) return '';
   if (score === -1) return 'TH';
   if (score >= 90) return 'A+';
   if (score >= 80) return 'A';
@@ -70,11 +72,13 @@ export function getGradePoint(grade: Grade): number {
     case 'E': return 8;
     case 'G': return 9;
     case 'TH': return 9;
+    case '': return 9;
     default: return 9;
   }
 }
 
 // Get qualitative description of grade in English/Malay
+// Modified to return empty string for blank grade
 export function getGradeDesc(grade: Grade): string {
   switch (grade) {
     case 'A+': return 'Cemerlang Tertinggi';
@@ -88,6 +92,7 @@ export function getGradeDesc(grade: Grade): string {
     case 'E': return 'Lulus';
     case 'G': return 'Gagal';
     case 'TH': return 'Tidak Hadir';
+    case '': return '';
     default: return 'Tiada Nilai';
   }
 }
@@ -102,10 +107,11 @@ export function getGradeColor(grade: Grade): string {
     case 'B': return 'bg-blue-50 text-blue-700 border-blue-100';
     case 'C+': return 'bg-indigo-50 text-indigo-700 border-indigo-100';
     case 'C': return 'bg-amber-100 text-amber-800 border-amber-200';
-    case 'D': return 'bg-orange-100 text-orange-800 border-orange-200';
+    case 'D': return 'bg-orange-100 text-orange-850 border-orange-200';
     case 'E': return 'bg-orange-50 text-orange-700 border-orange-100';
     case 'G': return 'bg-rose-100 text-rose-800 border-rose-200';
     case 'TH': return 'bg-slate-100 text-slate-500 border-slate-200';
+    case '': return 'bg-transparent text-transparent border-transparent';
     default: return 'bg-gray-100 text-gray-800';
   }
 }

@@ -25,7 +25,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { Student, Subject, ExamType } from '../types';
-import { calculateOverallKPIs, calculateGPMP, calculateStudentGPP } from '../utils';
+import { calculateOverallKPIs, calculateGPMP, calculateStudentGPP, getExams } from '../utils';
 
 interface DashboardProps {
   students: Student[];
@@ -35,30 +35,15 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ students, subjects, onSelectTab, onSelectStudent }: DashboardProps) {
-  const [activeSegment, setActiveSegment] = useState<ExamType>('ar1');
+  const [activeSegment, setActiveSegment] = useState<string>('ar1');
 
-  // Calculate KPIs for all phases
+  const activeKPI = calculateOverallKPIs(students, activeSegment);
+  
   const tovKPI = calculateOverallKPIs(students, 'tov');
-  const otr1KPI = calculateOverallKPIs(students, 'otr1');
   const ar1KPI = calculateOverallKPIs(students, 'ar1');
-  const otr2KPI = calculateOverallKPIs(students, 'otr2');
-  const ar2KPI = calculateOverallKPIs(students, 'ar2');
   const pptKPI = calculateOverallKPIs(students, 'ppt');
+  const ar2KPI = calculateOverallKPIs(students, 'ar2');
   const etrKPI = calculateOverallKPIs(students, 'etr');
-
-  const getKPI = (phase: ExamType) => {
-    switch (phase) {
-      case 'tov': return tovKPI;
-      case 'otr1': return otr1KPI;
-      case 'ar1': return ar1KPI;
-      case 'otr2': return otr2KPI;
-      case 'ar2': return ar2KPI;
-      case 'ppt': return pptKPI;
-      case 'etr': return etrKPI;
-    }
-  };
-
-  const activeKPI = getKPI(activeSegment);
 
   // Prepare chart data for overall grade groups (TOV vs PPT vs ETR)
   // Let's divide students into Categories:
@@ -75,7 +60,7 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
       ['tov', 'ppt', 'etr'].forEach(phase => {
         const p = phase as 'tov' | 'ppt' | 'etr';
         // Get student GPP
-        const hasScore = student.scores.some(s => s[p] !== -1);
+        const hasScore = student.scores.some(s => s[p] !== undefined && s[p] !== null && s[p] !== -1);
         if (!hasScore) return;
 
         // Count scores
@@ -86,7 +71,7 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
 
         student.scores.forEach(s => {
           const score = s[p];
-          if (score === -1) return;
+          if (score === undefined || score === null || score === -1) return;
           if (score >= 70) gradeAs++;
           else if (score >= 50) gradeBCs++;
           else if (score >= 40) gradeDEs++;
@@ -110,7 +95,7 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
         ['tov', 'ppt', 'etr'].forEach(phase => {
           const p = phase as 'tov' | 'ppt' | 'etr';
           const score = s[p];
-          if (score === -1) return;
+          if (score === undefined || score === null || score === -1) return;
 
           if (score >= 70) {
             gradesTally[p].A++;
@@ -207,18 +192,10 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
         </div>
       </div>      {/* Interactive Phase Toggle Tabs */}
       <div className="bg-slate-100/85 p-1 rounded-xl border border-slate-205 w-full flex flex-wrap gap-1">
-        {[
-          { id: 'tov', label: 'TOV T4' },
-          { id: 'otr1', label: 'Sasaran OTR 1' },
-          { id: 'ar1', label: 'PPT T5 (AR 1)' },
-          { id: 'otr2', label: 'Sasaran OTR 2' },
-          { id: 'ar2', label: 'Percubaan (AR 2)' },
-          { id: 'ppt', label: 'PPT T4' },
-          { id: 'etr', label: 'Sasaran ETR' }
-        ].map(item => (
+        {getExams().map(item => (
           <button
             key={item.id}
-            onClick={() => setActiveSegment(item.id as ExamType)}
+            onClick={() => setActiveSegment(item.id)}
             className={`flex-1 min-w-[80px] py-2 text-center text-xs font-black rounded-lg transition-all whitespace-nowrap ${
               activeSegment === item.id
                 ? 'bg-blue-600 text-white shadow-sm'
@@ -245,9 +222,9 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
             <span className="text-xs text-slate-500 block mt-1">Calon Terdaftar</span>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between text-[11px] font-mono text-slate-500">
-            <span>TOV: <span className="font-bold text-slate-700">{tovKPI.totalStudents}</span></span>
-            <span>AR1: <span className="font-bold text-slate-700">{ar1KPI.totalStudents}</span></span>
-            <span>ETR: <span className="font-bold text-slate-800">{etrKPI.totalStudents}</span></span>
+            <span>TOV: <span className="font-bold text-slate-700">{calculateOverallKPIs(students, 'tov').totalStudents}</span></span>
+            <span>AR1: <span className="font-bold text-slate-700">{calculateOverallKPIs(students, 'ar1').totalStudents}</span></span>
+            <span>ETR: <span className="font-bold text-slate-800">{calculateOverallKPIs(students, 'etr').totalStudents}</span></span>
           </div>
         </div>
 
@@ -267,21 +244,20 @@ export default function Dashboard({ students, subjects, onSelectTab, onSelectStu
               <span className="text-[11px] font-medium text-slate-550">Fasa:</span>
               <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
                 activeSegment === 'tov' ? 'bg-slate-100 text-slate-700' :
-                activeSegment === 'otr1' ? 'bg-blue-50 text-blue-600 border border-blue-200' :
-                activeSegment === 'ar1' ? 'bg-blue-600 text-white font-black' :
-                activeSegment === 'otr2' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
-                activeSegment === 'ar2' ? 'bg-emerald-600 text-white font-black' :
-                activeSegment === 'ppt' ? 'bg-indigo-150 text-indigo-800' : 'bg-emerald-100 text-emerald-800'
+                activeSegment.startsWith('otr') ? 'bg-blue-50 text-blue-600 border border-blue-200' :
+                activeSegment.startsWith('ar') ? 'bg-blue-600 text-white font-black' :
+                activeSegment === 'etr' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
+                'bg-indigo-50 text-indigo-805 border border-indigo-200'
               }`}>
-                {activeSegment === 'ar1' ? 'AR 1 (PPT T5)' : activeSegment === 'ar2' ? 'AR 2 (Prcb SPM)' : activeSegment.toUpperCase()}
+                {getExams().find(e => e.id === activeSegment)?.label || activeSegment.toUpperCase()}
               </span>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between text-[11px] font-mono text-slate-550">
-            <span>TOV: <span className="font-bold text-slate-750">{tovKPI.avgGPP}</span></span>
-            <span>AR1: <span className="font-bold text-blue-600">{ar1KPI.avgGPP}</span></span>
-            <span>AR2: <span className="font-bold text-emerald-600">{ar2KPI.avgGPP}</span></span>
-            <span>ETR: <span className="font-bold text-slate-800">{etrKPI.avgGPP}</span></span>
+            <span>TOV: <span className="font-bold text-slate-750">{calculateOverallKPIs(students, 'tov').avgGPP}</span></span>
+            <span>AR1: <span className="font-bold text-blue-600">{calculateOverallKPIs(students, 'ar1').avgGPP}</span></span>
+            <span>AR2: <span className="font-bold text-emerald-600">{calculateOverallKPIs(students, 'ar2').avgGPP}</span></span>
+            <span>ETR: <span className="font-bold text-slate-800">{calculateOverallKPIs(students, 'etr').avgGPP}</span></span>
           </div>
         </div>
 

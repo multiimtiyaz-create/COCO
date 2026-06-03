@@ -27,7 +27,7 @@ import {
   HeartHandshake
 } from 'lucide-react';
 import { Student, Subject, calculateGrade, getGradeColor, getGradeDesc } from '../types';
-import { calculateStudentGPP, checkLayakSijil } from '../utils';
+import { calculateStudentGPP, checkLayakSijil, getExams } from '../utils';
 import ReactMarkdown from 'react-markdown';
 
 interface StudentDetailProps {
@@ -42,13 +42,7 @@ export default function StudentDetail({ student, subjects, onBack, onUpdateStude
   const [editingSubId, setEditingSubId] = useState<string | null>(null);
   
   // Score form states
-  const [editTov, setEditTov] = useState(0);
-  const [editOtr1, setEditOtr1] = useState(0);
-  const [editAr1, setEditAr1] = useState(0);
-  const [editOtr2, setEditOtr2] = useState(0);
-  const [editAr2, setEditAr2] = useState(0);
-  const [editPpt, setEditPpt] = useState(0);
-  const [editEtr, setEditEtr] = useState(0);
+  const [editValues, setEditValues] = useState<Record<string, number>>({});
 
   // Gemini AI state
   const [aiPlan, setAiPlan] = useState<string>('');
@@ -60,7 +54,7 @@ export default function StudentDetail({ student, subjects, onBack, onUpdateStude
   const currentGppTOV = calculateStudentGPP(tempStudent, 'tov');
   const currentGppPPT = calculateStudentGPP(tempStudent, 'ppt');
   const currentGppETR = calculateStudentGPP(tempStudent, 'etr');
-  const certStatus = checkLayakSijil(tempStudent, 'ppt');
+  const certStatus = checkLayakSijil(tempStudent, 'ar1'); // Use AR1 for layak sijil check
 
   // Subjects dropdown for adding a missing subject score
   const availableSubToAdd = subjects.filter(
@@ -68,30 +62,25 @@ export default function StudentDetail({ student, subjects, onBack, onUpdateStude
   );
   const [subToAddId, setSubToAddId] = useState(availableSubToAdd[0]?.id || '');
 
-  const startEditing = (subId: string, tov: number, ppt: number, etr: number, otr1?: number, ar1?: number, otr2?: number, ar2?: number) => {
+  const startEditing = (subId: string, scoreRecord: Record<string, any>) => {
     setEditingSubId(subId);
-    setEditTov(tov === -1 ? 0 : tov);
-    setEditPpt(ppt === -1 ? 0 : ppt);
-    setEditEtr(etr === -1 ? 0 : etr);
-    setEditOtr1(otr1 === undefined || otr1 === -1 ? 0 : otr1);
-    setEditAr1(ar1 === undefined || ar1 === -1 ? 0 : ar1);
-    setEditOtr2(otr2 === undefined || otr2 === -1 ? 0 : otr2);
-    setEditAr2(ar2 === undefined || ar2 === -1 ? 0 : ar2);
+    const initialVals: Record<string, number> = {};
+    getExams().forEach(exam => {
+      const val = scoreRecord[exam.id];
+      initialVals[exam.id] = (val === undefined || val === null || val === -1) ? 0 : val;
+    });
+    setEditValues(initialVals);
   };
 
   const saveRowScores = (subId: string) => {
     const updated = editedScores.map(scoreObj => {
       if (scoreObj.subjectId === subId) {
-        return {
-          ...scoreObj,
-          tov: Math.min(100, Math.max(-1, editTov)),
-          otr1: Math.min(100, Math.max(-1, editOtr1)),
-          ar1: Math.min(100, Math.max(-1, editAr1)),
-          otr2: Math.min(100, Math.max(-1, editOtr2)),
-          ar2: Math.min(100, Math.max(-1, editAr2)),
-          ppt: Math.min(100, Math.max(-1, editPpt)),
-          etr: Math.min(100, Math.max(-1, editEtr))
-        };
+        const copy: Record<string, any> = { ...scoreObj };
+        getExams().forEach(exam => {
+          const val = editValues[exam.id];
+          copy[exam.id] = val !== undefined ? Math.min(100, Math.max(-1, val)) : null;
+        });
+        return copy as typeof student.scores[0];
       }
       return scoreObj;
     });
@@ -345,13 +334,17 @@ ${failedText || "* Tiada subjek teras dengan gred gagal dikesan secara aktif. Se
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-400 font-extrabold uppercase bg-slate-50/40 text-center">
                     <th className="py-2.5 px-3 text-left">Subjek</th>
-                    <th className="py-2.5 px-3 w-16">TOV</th>
-                    <th className="py-2.5 px-2 w-16 text-blue-600">OTR 1</th>
-                    <th className="py-2.5 px-2 w-20 text-blue-800 font-black">AR 1 (PPT T5)</th>
-                    <th className="py-2.5 px-2 w-16 text-emerald-600">OTR 2</th>
-                    <th className="py-2.5 px-2 w-20 text-emerald-800 font-black">AR 2 (PRCB)</th>
-                    <th className="py-2.5 px-2 w-16 text-slate-500">PPT T4</th>
-                    <th className="py-2.5 px-3 w-20 text-emerald-700 font-black bg-emerald-50/25">ETR</th>
+                    {getExams().map(exam => {
+                      let colorClass = "text-slate-500 font-extrabold";
+                      if (exam.id.startsWith('ar')) colorClass = "text-blue-800 font-black";
+                      else if (exam.id === 'etr') colorClass = "text-emerald-700 font-black bg-emerald-50/25";
+                      else if (exam.id.startsWith('otr')) colorClass = "text-blue-600 font-bold";
+                      return (
+                        <th key={exam.id} className={`py-2.5 px-2 w-20 ${colorClass}`}>
+                          {exam.label}
+                        </th>
+                      );
+                    })}
                     <th className="py-2.5 px-3 text-right w-16">Aksi</th>
                   </tr>
                 </thead>
@@ -368,160 +361,42 @@ ${failedText || "* Tiada subjek teras dengan gred gagal dikesan secara aktif. Se
                           <span className="text-[10px] text-slate-400 font-mono">{sub?.code ? `Kod: ${sub.code}` : ''} • {sub?.category}</span>
                         </td>
 
-                        {/* TOV Score */}
-                        <td className="py-3 px-2">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editTov}
-                              onChange={e => setEditTov(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <span className="font-bold text-slate-700">{scoreObj.tov === -1 ? 'TH' : scoreObj.tov}</span>
-                              <span className={`text-[9px] font-semibold px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.tov))}`}>
-                                {calculateGrade(scoreObj.tov)}
-                              </span>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* OTR 1 */}
-                        <td className="py-3 px-1">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editOtr1}
-                              onChange={e => setEditOtr1(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 text-blue-600"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <span className="font-semibold text-blue-600">{scoreObj.otr1 === undefined || scoreObj.otr1 === -1 ? '-' : scoreObj.otr1}</span>
-                              {scoreObj.otr1 !== undefined && scoreObj.otr1 !== -1 && (
-                                <span className={`text-[9px] font-medium px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.otr1))}`}>
-                                  {calculateGrade(scoreObj.otr1)}
-                                </span>
+                        {/* Dynamic Score cells */}
+                        {getExams().map(exam => {
+                          const examVal = scoreObj[exam.id];
+                          const isEtr = exam.id === 'etr';
+                          const bgClass = exam.id.startsWith('ar') ? 'bg-blue-50/10' : exam.id === 'etr' ? 'bg-emerald-50/5' : '';
+                          return (
+                            <td key={exam.id} className={`py-3 px-1 ${bgClass}`}>
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  min={-1}
+                                  max={100}
+                                  value={editValues[exam.id] !== undefined ? editValues[exam.id] : ''}
+                                  onChange={e => setEditValues({
+                                    ...editValues,
+                                    [exam.id]: parseInt(e.target.value) || 0
+                                  })}
+                                  className={`w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 ${
+                                    exam.id.startsWith('ar') ? 'text-blue-700' : isEtr ? 'text-emerald-800' : 'text-slate-700'
+                                  }`}
+                                />
+                              ) : (
+                                <div className="flex flex-col items-center">
+                                  <span className={`font-bold ${exam.id.startsWith('ar') ? 'text-blue-700 font-extrabold' : exam.id === 'etr' ? 'text-emerald-600' : 'text-slate-705'}`}>
+                                    {examVal === -1 ? 'TH' : (examVal !== undefined && examVal !== null) ? examVal : '-'}
+                                  </span>
+                                  {examVal !== undefined && examVal !== null && examVal !== -1 && (
+                                    <span className={`text-[9px] font-semibold px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(examVal))}`}>
+                                      {calculateGrade(examVal)}
+                                    </span>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* AR 1 (PPT T5) */}
-                        <td className="py-3 px-1">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editAr1}
-                              onChange={e => setEditAr1(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 text-blue-700"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center bg-blue-50/20 py-1 rounded">
-                              <span className="font-extrabold text-blue-700">{scoreObj.ar1 === undefined || scoreObj.ar1 === -1 ? '-' : scoreObj.ar1}</span>
-                              {scoreObj.ar1 !== undefined && scoreObj.ar1 !== -1 && (
-                                <span className={`text-[9px] font-bold px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.ar1))}`}>
-                                  {calculateGrade(scoreObj.ar1)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* OTR 2 */}
-                        <td className="py-3 px-1">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editOtr2}
-                              onChange={e => setEditOtr2(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 text-emerald-600"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <span className="font-semibold text-emerald-600">{scoreObj.otr2 === undefined || scoreObj.otr2 === -1 ? '-' : scoreObj.otr2}</span>
-                              {scoreObj.otr2 !== undefined && scoreObj.otr2 !== -1 && (
-                                <span className={`text-[9px] font-medium px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.otr2))}`}>
-                                  {calculateGrade(scoreObj.otr2)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* AR 2 (PRCB) */}
-                        <td className="py-3 px-1">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editAr2}
-                              onChange={e => setEditAr2(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 text-emerald-700"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center bg-emerald-50/20 py-1 rounded">
-                              <span className="font-extrabold text-emerald-700">{scoreObj.ar2 === undefined || scoreObj.ar2 === -1 ? '-' : scoreObj.ar2}</span>
-                              {scoreObj.ar2 !== undefined && scoreObj.ar2 !== -1 && (
-                                <span className={`text-[9px] font-bold px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.ar2))}`}>
-                                  {calculateGrade(scoreObj.ar2)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* PPT T4 Score */}
-                        <td className="py-3 px-2">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editPpt}
-                              onChange={e => setEditPpt(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <span className="font-medium text-slate-500">{scoreObj.ppt === -1 ? 'TH' : scoreObj.ppt}</span>
-                              <span className={`text-[9px] font-medium px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.ppt))}`}>
-                                {calculateGrade(scoreObj.ppt)}
-                              </span>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* ETR target score */}
-                        <td className="py-3 px-3 bg-emerald-50/10">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={-1}
-                              max={100}
-                              value={editEtr}
-                              onChange={e => setEditEtr(parseInt(e.target.value) || 0)}
-                              className="w-12 py-1 text-center font-bold border border-slate-300 rounded focus:border-blue-500 text-emerald-800"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <span className="font-bold text-emerald-600">{scoreObj.etr === -1 ? 'TH' : scoreObj.etr}</span>
-                              <span className={`text-[9px] font-semibold px-1 rounded block mt-0.5 ${getGradeColor(calculateGrade(scoreObj.etr))}`}>
-                                {calculateGrade(scoreObj.etr)}
-                              </span>
-                            </div>
-                          )}
-                        </td>
+                            </td>
+                          );
+                        })}
 
                         {/* Row operation buttons */}
                         <td className="py-3 px-3 text-right">
@@ -536,7 +411,7 @@ ${failedText || "* Tiada subjek teras dengan gred gagal dikesan secara aktif. Se
                             ) : (
                               <>
                                 <button
-                                  onClick={() => startEditing(scoreObj.subjectId, scoreObj.tov, scoreObj.ppt, scoreObj.etr, scoreObj.otr1, scoreObj.ar1, scoreObj.otr2, scoreObj.ar2)}
+                                  onClick={() => startEditing(scoreObj.subjectId, scoreObj)}
                                   className="p-1 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded"
                                   title="Edit Markah"
                                 >

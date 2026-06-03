@@ -5,7 +5,7 @@ import {
   Users, 
   BookOpen, 
   Award, 
-  Settings, 
+  Settings as SettingsIcon, 
   CheckCircle2, 
   X, 
   Briefcase,
@@ -23,6 +23,7 @@ import StudentDatabase from './components/StudentDatabase';
 import StudentDetail from './components/StudentDetail';
 import SubjectAnalysis from './components/SubjectAnalysis';
 import GredPurataSasaran from './components/GredPurataSasaran';
+import Settings from './components/Settings';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -54,17 +55,21 @@ export default function App() {
           let otr2 = s.otr2;
           let ar2 = s.ar2;
 
+          const isTovValid = tov !== undefined && tov !== null && tov !== -1;
+          const isEtrValid = etr !== undefined && etr !== null && etr !== -1;
+          const isPptValid = ppt !== undefined && ppt !== null && ppt !== -1;
+
           if (otr1 === undefined || otr1 === null) {
-            otr1 = (tov !== -1 && etr !== -1) ? Math.round(tov + (etr - tov) * 0.33) : -1;
+            otr1 = (isTovValid && isEtrValid) ? Math.round(tov! + (etr! - tov!) * 0.33) : undefined;
           }
           if (otr2 === undefined || otr2 === null) {
-            otr2 = (tov !== -1 && etr !== -1) ? Math.round(tov + (etr - tov) * 0.67) : -1;
+            otr2 = (isTovValid && isEtrValid) ? Math.round(tov! + (etr! - tov!) * 0.67) : undefined;
           }
           if (ar1 === undefined || ar1 === null) {
-            ar1 = ppt !== -1 ? ppt : -1;
+            ar1 = isPptValid ? ppt : undefined;
           }
           if (ar2 === undefined || ar2 === null) {
-            ar2 = -1; // Default TH / empty
+            ar2 = undefined;
           }
 
           return {
@@ -148,9 +153,9 @@ export default function App() {
     }
   };
 
-  // Reset database state to seed defaults
+  // Reset database state and clear student data (remove dummy/seed students)
   const handleResetToSeed = () => {
-    saveStudents(INITIAL_STUDENTS);
+    saveStudents([]);
     saveSubjects(INITIAL_SUBJECTS);
     setSelectedStudent(null);
     setActiveTab('dashboard');
@@ -226,6 +231,18 @@ export default function App() {
           >
             <TrendingUp size={16} className="shrink-0" />
             Sasaran Gred Purata
+          </button>
+          <button
+            onClick={() => { setActiveTab('settings'); setSelectedStudent(null); }}
+            className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 font-bold text-xs uppercase tracking-wider transition-all duration-150 ${
+              activeTab === 'settings' && !selectedStudent
+                ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20 shadow-2xs font-extrabold'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
+            }`}
+            id="sidebar-tab-settings"
+          >
+            <SettingsIcon size={16} className="shrink-0" />
+            Tetapan Sistem
           </button>
         </nav>
 
@@ -329,6 +346,13 @@ export default function App() {
                     onUpdateStudentsAndSubjects={handleUpdateStudentsAndSubjects}
                   />
                 )}
+                {activeTab === 'settings' && (
+                  <Settings
+                    subjects={subjects}
+                    students={students}
+                    onUpdateStudentsAndSubjects={handleUpdateStudentsAndSubjects}
+                  />
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -364,10 +388,10 @@ export default function App() {
                 <AlertCircle size={24} className="text-amber-600" />
               </div>
               <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">
-                Set Semula Database?
+                Kosongkan Database?
               </h3>
               <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                Adakah anda pasti mahu set semula database ke tetapan asal kilang (seed data)? Semua rekod mendaftar baru dan markah peperiksaan yang telah diubah akan dipadamkan sepenuhnya.
+                Adakah anda pasti mahu mengosongkan semua data murid dari database? Semua rekod calon dan markah yang didaftarkan akan dipadamkan sepenuhnya.
               </p>
               
               <div className="mt-6 flex gap-3">
@@ -381,9 +405,9 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleResetToSeed}
-                  className="flex-1 p-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider transition shadow-sm"
+                  className="flex-1 p-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider transition shadow-sm"
                 >
-                  Set Semula Rawat
+                  Ya, Kosongkan DB
                 </button>
               </div>
             </motion.div>

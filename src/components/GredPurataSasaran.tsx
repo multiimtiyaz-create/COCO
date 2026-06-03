@@ -19,9 +19,13 @@ import {
   X,
   Info,
   Sparkles,
-  Trash2
+  Trash2,
+  Users,
+  PlusCircle,
+  RefreshCw
 } from 'lucide-react';
 import { Student, Subject, Grade, calculateGrade, getGradePoint } from '../types';
+import { getExcludedSubjectIds } from '../utils';
 
 interface GredPurataSasaranProps {
   students: Student[];
@@ -245,14 +249,14 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
   const [csvText, setCsvText] = useState<string>('');
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [importMode, setImportMode] = useState<'merge' | 'overwrite'>('merge');
-  const [defaultPhase, setDefaultPhase] = useState<'auto' | 'tov' | 'ppt' | 'etr'>('auto');
+  const [defaultPhase, setDefaultPhase] = useState<'auto' | 'tov' | 'ppt' | 'ar2' | 'etr'>('auto');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [copiedTemplate, setCopiedTemplate] = useState<string | null>(null);
   const [activeTemplateTab, setActiveTemplateTab] = useState<'wide' | 'long'>('wide');
   
   // Filter peperiksaan untuk paparan jadual
-  const [selectedExamFilter, setSelectedExamFilter] = useState<'all' | 'tov' | 'ppt' | 'etr'>('all');
+  const [selectedExamFilter, setSelectedExamFilter] = useState<'all' | 'tov' | 'ppt' | 'ar2' | 'etr'>('all');
   
   // Custom dialog confirmation state
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
@@ -438,7 +442,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     
     // Update the editedEtrCounts state so that the input fields reflect what was generated!
     const finalCounts: Record<Grade, number> = {
-      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0
+      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0, '': 0
     };
     genStudents.forEach(s => {
       const g = calculateGrade(s.newEtr);
@@ -496,6 +500,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     const breakdown = {
       tov: { 'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0 },
       ppt: { 'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0 },
+      ar2: { 'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0 },
       etr: { 'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0 },
     };
 
@@ -509,6 +514,10 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           const g = calculateGrade(sc.ppt);
           if (g in breakdown.ppt) breakdown.ppt[g as keyof typeof breakdown.ppt]++;
         }
+        if (sc.ar2 !== null && sc.ar2 !== undefined) {
+          const g = calculateGrade(sc.ar2);
+          if (g in breakdown.ar2) breakdown.ar2[g as keyof typeof breakdown.ar2]++;
+        }
         if (sc.etr !== null && sc.etr !== undefined) {
           const g = calculateGrade(sc.etr);
           if (g in breakdown.etr) breakdown.etr[g as keyof typeof breakdown.etr]++;
@@ -517,6 +526,68 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     });
 
     return breakdown;
+  })() : null;
+
+  // Dynamic changes preview helper for comparing TOV with the incoming CSV
+  const changesPreview = parsedStats ? (() => {
+    const currentDefaultPhase = defaultPhase;
+    const isPptOrEtrImport = currentDefaultPhase === 'ppt' || currentDefaultPhase === 'ar2' || currentDefaultPhase === 'etr' || 
+                             parsedStats.parsedStudents.some(s => s.scores && s.scores.some((sc: any) => sc.ppt !== null && sc.ppt !== undefined || sc.ar2 !== null && sc.ar2 !== undefined));
+
+    const existingStudentsMap = new Map<string, Student>();
+    const existingByName = new Map<string, Student>();
+    students.forEach(s => {
+      existingStudentsMap.set(s.id, s);
+      const normName = s.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (normName) {
+        existingByName.set(normName, s);
+      }
+    });
+
+    const addedList: { name: string; clazz: string }[] = [];
+    const mergedList: { name: string; clazz: string; hasTov: boolean }[] = [];
+    const matchedExistingIds = new Set<string>();
+
+    parsedStats.parsedStudents.forEach(imported => {
+      const key = imported.id;
+      const normImportedName = imported.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      
+      let existing = existingStudentsMap.get(key);
+      if (!existing && normImportedName) {
+        existing = existingByName.get(normImportedName);
+      }
+
+      if (existing) {
+        matchedExistingIds.add(existing.id);
+        const hasTov = existing.scores.some(sc => sc.tov !== null && sc.tov !== undefined);
+        mergedList.push({
+          name: imported.name,
+          clazz: imported.clazz || existing.clazz,
+          hasTov
+        });
+      } else {
+        addedList.push({
+          name: imported.name,
+          clazz: imported.clazz || '4 TERAS'
+        });
+      }
+    });
+
+    const removedList: { name: string; clazz: string; hasTov: boolean }[] = [];
+    if (isPptOrEtrImport && importMode === 'merge') {
+      students.forEach(s => {
+        if (!matchedExistingIds.has(s.id)) {
+          const hasTov = s.scores.some(sc => sc.tov !== null && sc.tov !== undefined);
+          removedList.push({
+            name: s.name,
+            clazz: s.clazz,
+            hasTov
+          });
+        }
+      });
+    }
+
+    return { addedList, mergedList, removedList, isPptOrEtrImport };
   })() : null;
 
   // Available classes in dataset
@@ -530,9 +601,9 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
   const GRADES: Grade[] = ['A+', 'A', 'A-', 'B+', 'B', 'C+', 'C', 'D', 'E', 'G'];
 
   // Helper function to compute subject statistics for an exam phase
-  const getSubjectStats = (subjectId: string, phase: 'tov' | 'ppt' | 'etr') => {
+  const getSubjectStats = (subjectId: string, phase: 'tov' | 'ppt' | 'ar2' | 'etr') => {
     const counts: Record<Grade, number> = {
-      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0
+      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0, '': 0
     };
     let totalPresent = 0;
     let totalPoints = 0;
@@ -542,17 +613,20 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     filteredStudents.forEach(student => {
       const scoreObj = student.scores.find(s => s.subjectId === subjectId);
       if (scoreObj) {
-        totalCount++;
         const val = scoreObj[phase];
-        if (val === -1) {
-          absentCount++;
-        } else {
-          const grade = calculateGrade(val);
-          if (grade in counts) {
-            counts[grade]++;
+        if (val !== undefined && val !== null) {
+          totalCount++;
+          if (val === -1) {
+            absentCount++;
+            counts['TH']++;
+          } else {
+            const grade = calculateGrade(val);
+            if (grade in counts) {
+              counts[grade]++;
+            }
+            totalPresent++;
+            totalPoints += getGradePoint(grade);
           }
-          totalPresent++;
-          totalPoints += getGradePoint(grade);
         }
       }
     });
@@ -561,7 +635,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
     return {
       counts,
-      calon: totalPresent,
+      calon: totalPresent + absentCount,
       total: totalCount,
       absent: absentCount,
       gpmp
@@ -569,28 +643,34 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
   };
 
   // Helper function to compute overall school school metrics (aggregated over all papers)
-  const getOverallStats = (phase: 'tov' | 'ppt' | 'etr') => {
+  const getOverallStats = (phase: 'tov' | 'ppt' | 'ar2' | 'etr') => {
     const counts: Record<Grade, number> = {
-      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0
+      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0, '': 0
     };
     let totalPresent = 0;
     let totalPoints = 0;
     let totalCount = 0;
     let absentCount = 0;
 
+    const excludedIds = getExcludedSubjectIds();
+
     filteredStudents.forEach(student => {
       student.scores.forEach(scoreObj => {
-        totalCount++;
+        if (excludedIds.includes(scoreObj.subjectId)) return;
         const val = scoreObj[phase];
-        if (val === -1) {
-          absentCount++;
-        } else {
-          const grade = calculateGrade(val);
-          if (grade in counts) {
-            counts[grade]++;
+        if (val !== undefined && val !== null) {
+          totalCount++;
+          if (val === -1) {
+            absentCount++;
+            counts['TH']++;
+          } else {
+            const grade = calculateGrade(val);
+            if (grade in counts) {
+              counts[grade]++;
+            }
+            totalPresent++;
+            totalPoints += getGradePoint(grade);
           }
-          totalPresent++;
-          totalPoints += getGradePoint(grade);
         }
       });
     });
@@ -599,26 +679,30 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
     return {
       counts,
-      calon: totalPresent,
+      calon: totalPresent + absentCount,
       total: totalCount,
       absent: absentCount,
       gps
     };
   };
 
-  // Compute Overall Stats for TOV, PPT, and ETR
+  // Compute Overall Stats for TOV, PPT, Percubaan (ar2), and ETR
   const overallTOV = getOverallStats('tov');
   const overallPPT = getOverallStats('ppt');
+  const overallPercubaan = getOverallStats('ar2');
   const overallETR = getOverallStats('etr');
 
   // Compute overall ETR stats dynamically aggregating manual edits
   const overallETR_display = (() => {
     const aggregatedCounts: Record<Grade, number> = {
-      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0
+      'A+': 0, 'A': 0, 'A-': 0, 'B+': 0, 'B': 0, 'C+': 0, 'C': 0, 'D': 0, 'E': 0, 'G': 0, 'TH': 0, '': 0
     };
     
+    const excludedIds = getExcludedSubjectIds();
+
     // Go through all subjects
     subjects.forEach(sub => {
+      if (excludedIds.includes(sub.id)) return;
       const sub_stats = getSubjectStats(sub.id, 'etr');
       GRADES.forEach(g => {
         const rawVal = editedEtrCounts[sub.id]?.[g] !== undefined 
@@ -627,6 +711,8 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
         const cnt = typeof rawVal === 'string' ? (parseInt(rawVal) || 0) : rawVal;
         aggregatedCounts[g] += cnt;
       });
+      // Aggregate TH
+      aggregatedCounts['TH'] += sub_stats.absent;
     });
     
     let totalPresent = 0;
@@ -642,7 +728,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     
     return {
       counts: aggregatedCounts,
-      calon: totalPresent,
+      calon: totalPresent + (aggregatedCounts['TH'] || 0),
       gps: finalGps,
       absent: overallETR.absent
     };
@@ -684,16 +770,16 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     });
 
   // Templates to Copy
-  const WIDE_TEMPLATE = `ID_Murid,Nama,Kelas,Bahasa Melayu (TOV),Bahasa Melayu (PPT),Bahasa Melayu (Percubaan SPM),Sejarah (TOV),Sejarah (PPT),Sejarah (Percubaan SPM),Mathematics (TOV),Mathematics (PPT),Mathematics (Percubaan SPM)
-"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM",71,75,85,65,71,80,70,72,85
-"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM",57,60,72,52,55,68,44,48,60
-"050216050065","MUHAMMAD HAFIZULLAH B AIDILFITRI","4 UM",50,52,70,42,48,65,38,TH,58`;
+  const WIDE_TEMPLATE = `ID_Murid,Nama,Kelas,Bahasa Melayu (TOV),Bahasa Melayu (PPT),Bahasa Melayu (Percubaan SPM),Bahasa Melayu (ETR),Sejarah (TOV),Sejarah (PPT),Sejarah (Percubaan SPM),Sejarah (ETR),Mathematics (TOV),Mathematics (PPT),Mathematics (Percubaan SPM),Mathematics (ETR)
+"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM",71,75,80,85,65,71,75,80,70,72,80,85
+"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM",57,60,65,72,52,55,60,68,44,48,55,60
+"050216050065","MUHAMMAD HAFIZULLAH B AIDILFITRI","4 UM",50,52,60,70,42,48,55,65,38,TH,45,58`;
 
-  const LONG_TEMPLATE = `ID_Murid,Nama,Kelas,Kod_Subjek,Nama_Subjek,TOV,PPT,Percubaan SPM
-"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM","1103","Bahasa Melayu",71,75,85
-"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM","1249","Sejarah",65,71,80
-"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM","1103","Bahasa Melayu",57,60,72
-"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM","1449","Mathematics",44,48,60`;
+  const LONG_TEMPLATE = `ID_Murid,Nama,Kelas,Kod_Subjek,Nama_Subjek,TOV,PPT,Percubaan SPM,ETR
+"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM","1103","Bahasa Melayu",71,75,80,85
+"050309050419","MOHAMAD ARFA BIN HAIRI","4 UKM","1249","Sejarah",65,71,75,80
+"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM","1103","Bahasa Melayu",57,60,65,72
+"050118050512","NAJUWAH SHAHFIKAH BT. SHAHRUL RIZAL","4 UKM","1449","Mathematics",44,48,55,60`;
 
   const handleCopyTemplate = (text: string, type: 'wide' | 'long') => {
     navigator.clipboard.writeText(text);
@@ -738,7 +824,26 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     reader.onload = (event) => {
       const text = event.target?.result as string;
       setCsvText(text);
-      processCSVData(text);
+
+      // Auto-detect exam phase from the filename to prevent PPT files from falling back to TOV and overwriting 
+      let detectedPhase: 'tov' | 'ppt' | 'ar2' | 'etr' | 'auto' = 'auto';
+      const lowercaseName = file.name.toLowerCase();
+      if (lowercaseName.includes('ppt') || lowercaseName.includes('pertengahan') || lowercaseName.includes('tengah')) {
+        detectedPhase = 'ppt';
+      } else if (lowercaseName.includes('percubaan') || lowercaseName.includes('trial')) {
+        detectedPhase = 'ar2';
+      } else if (lowercaseName.includes('etr') || lowercaseName.includes('sasaran')) {
+        detectedPhase = 'etr';
+      } else if (lowercaseName.includes('tov') || lowercaseName.includes('mula') || lowercaseName.includes('take off') || lowercaseName.includes('take-off')) {
+        detectedPhase = 'tov';
+      }
+
+      if (detectedPhase !== 'auto') {
+        setDefaultPhase(detectedPhase);
+        processCSVData(text, detectedPhase);
+      } else {
+        processCSVData(text);
+      }
     };
     reader.onerror = () => {
       setErrorMessage('Gagal memuat naik dan membaca fail CSV tersebut.');
@@ -747,7 +852,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
   };
 
   // The comprehensive parser engine that parses wide or long formats
-  const processCSVData = (text: string, activePhaseOverride?: 'auto' | 'tov' | 'ppt' | 'etr') => {
+  const processCSVData = (text: string, activePhaseOverride?: 'auto' | 'tov' | 'ppt' | 'ar2' | 'etr') => {
     try {
       setErrorMessage(null);
       setParsedStats(null);
@@ -808,10 +913,37 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
       const currentDefaultPhase = activePhaseOverride || defaultPhase;
 
+      // Smart Auto-detection of overall Phase to prevent overwrites
+      let inferredDefaultPhase: 'tov' | 'ppt' | 'ar2' | 'etr' = 'tov';
+      
+      const hasExistingTov = students.some(s => s.scores && s.scores.some(sc => sc.tov !== undefined && sc.tov !== null));
+      const hasExistingPpt = students.some(s => s.scores && s.scores.some(sc => sc.ppt !== undefined && sc.ppt !== null));
+      const hasExistingAr2 = students.some(s => s.scores && s.scores.some(sc => sc.ar2 !== undefined && sc.ar2 !== null));
+      const hasExistingEtr = students.some(s => s.scores && s.scores.some(sc => sc.etr !== undefined && sc.etr !== null));
+
+      if (hasExistingTov && !hasExistingPpt) {
+        inferredDefaultPhase = 'ppt';
+      } else if (hasExistingTov && hasExistingPpt && !hasExistingAr2) {
+        inferredDefaultPhase = 'ar2';
+      } else if (hasExistingTov && hasExistingPpt && hasExistingAr2 && !hasExistingEtr) {
+        inferredDefaultPhase = 'etr';
+      }
+
+      const cleanLowerText = text.toLowerCase();
+      if (cleanLowerText.includes('peperiksaan pertengahan') || cleanLowerText.includes('pentaksiran pertengahan') || cleanLowerText.includes('tengah tahun') || cleanLowerText.includes('ppt')) {
+        inferredDefaultPhase = 'ppt';
+      } else if (cleanLowerText.includes('percubaan spm') || cleanLowerText.includes('trial spm') || cleanLowerText.includes('percubaan') || cleanLowerText.includes('trial')) {
+        inferredDefaultPhase = 'ar2';
+      } else if (cleanLowerText.includes('etr') || cleanLowerText.includes('sasaran')) {
+        inferredDefaultPhase = 'etr';
+      } else if (cleanLowerText.includes('tov') || cleanLowerText.includes('take off') || cleanLowerText.includes('take-off') || cleanLowerText.includes('nilai mula')) {
+        inferredDefaultPhase = 'tov';
+      }
+
       // Check if it's the Long Format (has explicit subject columns)
       const subjectCodeIdx = headers.findIndex(h => 
         (h.includes('subjek') || h.includes('subject') || h.includes('mata pelajaran') || h.includes('matapelajaran') || h.includes('mp') || h === 'kp_sasaran_mp' || h === 'mp_code' || h === 'kodmp') && 
-        (h.includes('kod') || h.includes('code') || h.includes('id'))
+        (h.includes('kod') || h.includes('code' ) || h.includes('id'))
       );
       const subjectNameIdx = headers.findIndex(h => 
         h === 'mp' || h === 'mata pelajaran' || h === 'matapelajaran' || h === 'subject' || h === 'subjek' || 
@@ -839,7 +971,8 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
         // --- PARSE LONG FORMAT ---
         const tovIdx = headers.findIndex(h => h === 'tov' || h.includes('tov'));
         const pptIdx = headers.findIndex(h => h === 'ppt' || h.includes('ppt') || h.includes('tengah'));
-        const etrIdx = headers.findIndex(h => h === 'etr' || h.includes('percubaan') || h.includes('sasaran'));
+        const ar2Idx = headers.findIndex(h => h.includes('percubaan') || h.includes('trial'));
+        const etrIdx = headers.findIndex(h => h === 'etr' || h.includes('sasaran'));
 
         // Look for an activity/exam name column and a single score-carrying column
         const activityColIdx = headers.findIndex(h => 
@@ -917,11 +1050,12 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
           let tovValue: number | null = null;
           let pptValue: number | null = null;
+          let ar2Value: number | null = null;
           let etrValue: number | null = null;
 
           if (singleScoreColIdx !== -1) {
             const scoreVal = parseScoreValue(row[singleScoreColIdx] || '');
-            let rowPhase: 'tov' | 'ppt' | 'etr' | null = null;
+            let rowPhase: 'tov' | 'ppt' | 'ar2' | 'etr' | null = null;
 
             if (currentDefaultPhase !== 'auto') {
               rowPhase = currentDefaultPhase;
@@ -947,24 +1081,30 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                 rowPhase = 'ppt';
               } else if (
                 actStr.includes('percubaan') || 
+                actStr.includes('trial')
+              ) {
+                rowPhase = 'ar2';
+              } else if (
                 actStr.includes('sasaran') || 
                 actStr.includes('etr') || 
                 actStr.includes('spm')
               ) {
                 rowPhase = 'etr';
               } else {
-                rowPhase = 'tov'; // Default to TOV
+                rowPhase = inferredDefaultPhase; // Smart default!
               }
             } else {
-              rowPhase = 'tov'; // No activity column, fallback to TOV
+              rowPhase = inferredDefaultPhase; // Smart default!
             }
 
             if (rowPhase === 'tov') tovValue = scoreVal;
             else if (rowPhase === 'ppt') pptValue = scoreVal;
+            else if (rowPhase === 'ar2') ar2Value = scoreVal;
             else if (rowPhase === 'etr') etrValue = scoreVal;
           } else {
             tovValue = tovIdx !== -1 ? parseScoreValue(row[tovIdx] || '') : null;
             pptValue = pptIdx !== -1 ? parseScoreValue(row[pptIdx] || '') : null;
+            ar2Value = ar2Idx !== -1 ? parseScoreValue(row[ar2Idx] || '') : null;
             etrValue = etrIdx !== -1 ? parseScoreValue(row[etrIdx] || '') : null;
           }
 
@@ -990,9 +1130,10 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           if (existingScoreIdx !== -1) {
             if (tovValue !== null) student.scores[existingScoreIdx].tov = tovValue;
             if (pptValue !== null) student.scores[existingScoreIdx].ppt = pptValue;
+            if (ar2Value !== null) student.scores[existingScoreIdx].ar2 = ar2Value;
             if (etrValue !== null) student.scores[existingScoreIdx].etr = etrValue;
           } else {
-            student.scores.push({ subjectId: subId, tov: tovValue, ppt: pptValue, etr: etrValue });
+            student.scores.push({ subjectId: subId, tov: tovValue, ppt: pptValue, ar2: ar2Value, etr: etrValue });
           }
         }
       } else {
@@ -1001,7 +1142,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           headerIdx: number;
           subjectName: string;
           subjectCode: string;
-          phase: 'tov' | 'ppt' | 'etr';
+          phase: 'tov' | 'ppt' | 'ar2' | 'etr';
         }> = [];
 
         const EXCLUDED_HEADERS = [
@@ -1042,18 +1183,20 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
             cleanHeader.includes('take off');
 
           const hasPpt = cleanHeader.includes('ppt') || cleanHeader.includes('pertengahan') || cleanHeader.includes('tengah');
-          const hasEtr = cleanHeader.includes('etr') || cleanHeader.includes('percubaan') || cleanHeader.includes('sasaran');
+          const hasPrcb = cleanHeader.includes('percubaan') || cleanHeader.includes('trial');
+          const hasEtr = cleanHeader.includes('etr') || cleanHeader.includes('sasaran');
 
-          let phase: 'tov' | 'ppt' | 'etr' | null = null;
+          let phase: 'tov' | 'ppt' | 'ar2' | 'etr' | null = null;
           if (currentDefaultPhase !== 'auto') {
             phase = currentDefaultPhase;
           } else {
             if (hasTov) phase = 'tov';
             else if (hasPpt) phase = 'ppt';
+            else if (hasPrcb) phase = 'ar2';
             else if (hasEtr) phase = 'etr';
             else {
-              // Fallback to TOV instead of ETR
-              phase = 'tov';
+              // Fallback to the smart inferred default phase to prevent accidental overwrites
+              phase = inferredDefaultPhase;
             }
           }
 
@@ -1146,7 +1289,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           const jantinaVal = jantinaIdx !== -1 ? (row[jantinaIdx] || '').replace(/^"(.*)"$/, '$1').trim().toUpperCase() : undefined;
           const kodNegeriVal = kodNegeriIdx !== -1 ? (row[kodNegeriIdx] || '').replace(/^"(.*)"$/, '$1').trim() : undefined;
 
-          const studentScoresMap = new Map<string, { tov: number | null, ppt: number | null, etr: number | null }>();
+          const studentScoresMap = new Map<string, { tov: number | null, ppt: number | null, ar2: number | null, etr: number | null }>();
 
           subjectColumns.forEach(({ headerIdx, subjectName, subjectCode, phase }) => {
             const valStr = row[headerIdx] || '';
@@ -1157,7 +1300,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
             let subName = matchedSubject ? matchedSubject.name : subjectName;
             let subCode = matchedSubject ? matchedSubject.code : subjectCode;
 
-            if (!matchedSubject && !detectedSubjectsMap.has(subId)) {
+            if (!detectedSubjectsMap.has(subId)) {
               let category: 'Wajib' | 'Teras' | 'Elektif' | 'Vokasional' = 'Elektif';
               const catLower = subName.toLowerCase();
               if (catLower.includes('melayu') || catLower.includes('sejarah') || catLower.includes('inggeris') || catLower.includes('math') || catLower.includes('science') || catLower.includes('islam') || catLower.includes('moral')) {
@@ -1168,7 +1311,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
             let sc = studentScoresMap.get(subId);
             if (!sc) {
-              sc = { tov: null, ppt: null, etr: null };
+              sc = { tov: null, ppt: null, ar2: null, etr: null };
               studentScoresMap.set(subId, sc);
             }
             if (val !== null) {
@@ -1179,11 +1322,12 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           // Build a clean scores list, filtering out subjects that are never taken (all phases are null)
           const scoresList: any[] = [];
           studentScoresMap.forEach((sc, subId) => {
-            if (sc.tov !== null || sc.ppt !== null || sc.etr !== null) {
+            if (sc.tov !== null || sc.ppt !== null || sc.ar2 !== null || sc.etr !== null) {
               scoresList.push({
                 subjectId: subId,
                 tov: sc.tov,
                 ppt: sc.ppt,
+                ar2: sc.ar2,
                 etr: sc.etr
               });
             }
@@ -1257,25 +1401,23 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
     if (!parsedStats) return;
 
     let finalStudents: Student[] = [];
-    let finalSubjects: Subject[] = [];
-
-    // Map existing subjects for easy merging
-    const subjectsMap = new Map<string, Subject>();
-    subjects.forEach(s => subjectsMap.set(s.id, s));
-    parsedStats.parsedSubjects.forEach(s => subjectsMap.set(s.id, s));
-    finalSubjects = Array.from(subjectsMap.values());
+    let finalSubjects: Subject[] = parsedStats.parsedSubjects;
+    const finalSubjectIds = new Set(finalSubjects.map(s => s.id));
 
     if (importMode === 'overwrite') {
       finalStudents = parsedStats.parsedStudents.map(imported => ({
         id: imported.id,
         name: imported.name,
         clazz: imported.clazz,
-        scores: imported.scores.map((sc: any) => ({
-          subjectId: sc.subjectId,
-          tov: sc.tov ?? -1,
-          ppt: sc.ppt ?? -1,
-          etr: sc.etr ?? -1
-        })),
+        scores: imported.scores
+          .filter((sc: any) => finalSubjectIds.has(sc.subjectId))
+          .map((sc: any) => ({
+            subjectId: sc.subjectId,
+            tov: (sc.tov !== null && sc.tov !== undefined) ? sc.tov : undefined,
+            ppt: (sc.ppt !== null && sc.ppt !== undefined) ? sc.ppt : undefined,
+            ar2: (sc.ar2 !== null && sc.ar2 !== undefined) ? sc.ar2 : undefined,
+            etr: (sc.etr !== null && sc.etr !== undefined) ? sc.etr : undefined
+          })),
         kod: imported.kod,
         jpn: imported.jpn,
         ppd: imported.ppd,
@@ -1286,30 +1428,63 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
       }));
     } else {
       const studentsMap = new Map<string, Student>();
+      const studentsByName = new Map<string, Student>();
+      const matchedExistingIds = new Set<string>();
+      
       students.forEach(s => {
-        studentsMap.set(s.id, {
+        const studentCopy = {
           ...s,
-          scores: s.scores.map(sc => ({ ...sc }))
-        });
+          scores: s.scores.filter(sc => finalSubjectIds.has(sc.subjectId)).map(sc => ({ ...sc }))
+        };
+        studentsMap.set(s.id, studentCopy);
+        const normName = s.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (normName) {
+          studentsByName.set(normName, studentCopy);
+        }
       });
 
       parsedStats.parsedStudents.forEach(importedStudent => {
         const key = importedStudent.id;
-        const existing = studentsMap.get(key);
+        const normImportedName = importedStudent.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        
+        let existing = studentsMap.get(key);
+        if (!existing && normImportedName) {
+          existing = studentsByName.get(normImportedName);
+          if (existing) {
+            // Remove from the old key to prevent duplicate items in Array.from(values)
+            studentsMap.delete(existing.id);
+            // Update the id of the existing student to the new key
+            existing.id = key;
+            // Add under the new key
+            studentsMap.set(key, existing);
+          }
+        }
 
         if (existing) {
+          matchedExistingIds.add(existing.id);
           importedStudent.scores.forEach((importedScore: any) => {
+            if (!finalSubjectIds.has(importedScore.subjectId)) return;
             const idx = existing.scores.findIndex(sc => sc.subjectId === importedScore.subjectId);
             if (idx !== -1) {
-              if (importedScore.tov !== null) existing.scores[idx].tov = importedScore.tov;
-              if (importedScore.ppt !== null) existing.scores[idx].ppt = importedScore.ppt;
-              if (importedScore.etr !== null) existing.scores[idx].etr = importedScore.etr;
+              if (importedScore.tov !== null && importedScore.tov !== undefined) {
+                existing.scores[idx].tov = importedScore.tov;
+              }
+              if (importedScore.ppt !== null && importedScore.ppt !== undefined) {
+                existing.scores[idx].ppt = importedScore.ppt;
+              }
+              if (importedScore.ar2 !== null && importedScore.ar2 !== undefined) {
+                existing.scores[idx].ar2 = importedScore.ar2;
+              }
+              if (importedScore.etr !== null && importedScore.etr !== undefined) {
+                existing.scores[idx].etr = importedScore.etr;
+              }
             } else {
               existing.scores.push({
                 subjectId: importedScore.subjectId,
-                tov: importedScore.tov ?? -1,
-                ppt: importedScore.ppt ?? -1,
-                etr: importedScore.etr ?? -1
+                tov: (importedScore.tov !== null && importedScore.tov !== undefined) ? importedScore.tov : undefined,
+                ppt: (importedScore.ppt !== null && importedScore.ppt !== undefined) ? importedScore.ppt : undefined,
+                ar2: (importedScore.ar2 !== null && importedScore.ar2 !== undefined) ? importedScore.ar2 : undefined,
+                etr: (importedScore.etr !== null && importedScore.etr !== undefined) ? importedScore.etr : undefined
               });
             }
           });
@@ -1329,12 +1504,15 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
             id: importedStudent.id,
             name: importedStudent.name,
             clazz: importedStudent.clazz,
-            scores: importedStudent.scores.map((sc: any) => ({
-              subjectId: sc.subjectId,
-              tov: sc.tov ?? -1,
-              ppt: sc.ppt ?? -1,
-              etr: sc.etr ?? -1
-            })),
+            scores: importedStudent.scores
+              .filter((sc: any) => finalSubjectIds.has(sc.subjectId))
+              .map((sc: any) => ({
+                subjectId: sc.subjectId,
+                tov: (sc.tov !== null && sc.tov !== undefined) ? sc.tov : undefined,
+                ppt: (sc.ppt !== null && sc.ppt !== undefined) ? sc.ppt : undefined,
+                ar2: (sc.ar2 !== null && sc.ar2 !== undefined) ? sc.ar2 : undefined,
+                etr: (sc.etr !== null && sc.etr !== undefined) ? sc.etr : undefined
+              })),
             kod: importedStudent.kod,
             jpn: importedStudent.jpn,
             ppd: importedStudent.ppd,
@@ -1345,6 +1523,19 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
           });
         }
       });
+
+      // Remove any student originally in TOV but NOT present in the PPT-containing imported file
+      const currentDefaultPhase = defaultPhase;
+      const isPptOrEtrImport = currentDefaultPhase === 'ppt' || currentDefaultPhase === 'ar2' || currentDefaultPhase === 'etr' || 
+                              parsedStats.parsedStudents.some(s => s.scores && s.scores.some((sc: any) => sc.ppt !== null && sc.ppt !== undefined || sc.ar2 !== null && sc.ar2 !== undefined));
+
+      if (isPptOrEtrImport) {
+        students.forEach(s => {
+          if (!matchedExistingIds.has(s.id)) {
+            studentsMap.delete(s.id);
+          }
+        });
+      }
 
       finalStudents = Array.from(studentsMap.values());
     }
@@ -1559,13 +1750,14 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
             <span className="hidden sm:inline mr-1 text-amber-800 font-medium">Fasa:</span>
             <select
               value={selectedExamFilter}
-              onChange={e => setSelectedExamFilter(e.target.value as 'all' | 'tov' | 'ppt' | 'etr')}
+              onChange={e => setSelectedExamFilter(e.target.value as 'all' | 'tov' | 'ppt' | 'ar2' | 'etr')}
               className="bg-transparent border-none outline-hidden text-amber-955 font-extrabold cursor-pointer"
             >
               <option value="all">Semua Peperiksaan</option>
               <option value="tov">TOV (Take-off Value)</option>
               <option value="ppt">Pertengahan Tahun (PPT)</option>
-              <option value="etr">Percubaan / ETR</option>
+              <option value="ar2">Percubaan SPM</option>
+              <option value="etr">Sasaran SPM (ETR)</option>
             </select>
           </div>
 
@@ -1702,7 +1894,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                           Tentukan peperiksaan khusus untuk melabelkan dan memasukkan semua markah daripada borang CSV (seperti lembaran SAPS JPN/PPD).
                         </p>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                         {/* Option Auto */}
                         <button
                           type="button"
@@ -1754,6 +1946,23 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                           <span className="text-[9px] text-slate-500 font-medium leading-tight">Peperiksaan tengah</span>
                         </button>
 
+                        {/* Option Percubaan SPM */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDefaultPhase('ar2');
+                            if (csvText.trim()) processCSVData(csvText, 'ar2');
+                          }}
+                          className={`p-2.5 rounded-lg border text-left transition flex flex-col justify-between gap-1 shadow-3xs ${
+                            defaultPhase === 'ar2'
+                              ? 'bg-amber-50 border-orange-500 text-orange-950 ring-2 ring-orange-550/10'
+                              : 'bg-white hover:bg-slate-52 border-slate-250 text-slate-700'
+                          }`}
+                        >
+                          <span className="text-[10px] font-black uppercase tracking-wide block">Percubaan SPM</span>
+                          <span className="text-[9px] text-slate-500 font-medium leading-tight">Peperiksaan percubaan</span>
+                        </button>
+
                         {/* Option ETR */}
                         <button
                           type="button"
@@ -1767,8 +1976,8 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                               : 'bg-white hover:bg-slate-52 border-slate-250 text-slate-700'
                           }`}
                         >
-                          <span className="text-[10px] font-black uppercase tracking-wide block">Percubaan / ETR</span>
-                          <span className="text-[9px] text-slate-500 font-medium leading-tight">Akhir &amp; Sasaran SPM</span>
+                          <span className="text-[10px] font-black uppercase tracking-wide block">Sasaran SPM / ETR</span>
+                          <span className="text-[9px] text-slate-500 font-medium leading-tight">Sasaran &amp; Akhir SPM</span>
                         </button>
                       </div>
                     </div>
@@ -1965,6 +2174,22 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                               </td>
                             </tr>
 
+                            {/* Percubaan SPM */}
+                            <tr className="border-b border-slate-200 hover:bg-slate-50/50">
+                              <td className="p-2 border-r border-slate-200 text-left font-bold text-slate-700 pl-3">Percubaan SPM</td>
+                              {['A+', 'A', 'A-', 'B+', 'B', 'C+', 'C', 'D', 'E', 'G', 'TH'].map(g => {
+                                const count = parsedGradesBreakdown.ar2[g as keyof typeof parsedGradesBreakdown.ar2] || 0;
+                                return (
+                                  <td key={g} className={`p-2 border-r border-slate-200 font-bold font-mono ${count > 0 ? 'text-slate-900 font-extrabold bg-amber-50/20' : 'text-slate-300'}`}>
+                                    {count}
+                                  </td>
+                                );
+                              })}
+                              <td className="p-2 font-black font-mono bg-slate-50 text-slate-800">
+                                {Object.values(parsedGradesBreakdown.ar2).reduce((a, b) => a + b, 0)}
+                              </td>
+                            </tr>
+
                             {/* ETR */}
                             <tr className="hover:bg-slate-50/50">
                               <td className="p-2 border-r border-slate-200 text-left font-bold text-slate-700 pl-3">SASARAN SPM (ETR)</td>
@@ -1985,6 +2210,116 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                       </div>
                     </div>
                   )} 
+
+                  {/* Dynamic Changes Comparison visualizer for TOV and PPT (Interactive list) */}
+                  {changesPreview && (
+                    <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-4" id="gp-import-changes-preview">
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                        <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                          <Users size={15} className="text-indigo-600 shrink-0" />
+                          <span>ANALISIS PERBANDINGAN &amp; ALIRAN DRAF DATA CALON ({importMode === 'merge' ? 'GABUNGAN' : 'GANTIAN'})</span>
+                        </h4>
+                        <span className="text-[9px] text-indigo-750 bg-indigo-50 border border-indigo-150 font-bold px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                          DRAF AUTOMATIK
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        {/* 1. Added Students (New Students) */}
+                        <div className="bg-white border border-slate-200/80 rounded-lg p-3 flex flex-col space-y-2 h-full">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase text-emerald-600 font-extrabold flex items-center gap-1.5">
+                              <PlusCircle size={13} />
+                              Murid Baru (Tiada TOV)
+                            </span>
+                            <span className="text-[11px] font-black bg-emerald-50 text-emerald-800 border border-emerald-150 px-1.5 py-0.2 rounded-md font-mono">
+                              +{changesPreview.addedList.length}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 leading-snug">
+                            Pelajar baru ditemui dalam fail PPT sedia untuk dimasukkan automatik ke sistem.
+                          </span>
+                          <div className="max-h-28 overflow-y-auto border border-slate-100 rounded-md p-1.5 bg-slate-50/50 space-y-1 text-[11px]">
+                            {changesPreview.addedList.length === 0 ? (
+                              <span className="text-slate-400 italic block text-center py-2">Tiada murid baru</span>
+                            ) : (
+                              changesPreview.addedList.map((st, i) => (
+                                <div key={i} className="flex justify-between items-center bg-white border border-slate-150 p-1 rounded-sm shadow-2xs">
+                                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">{st.name}</span>
+                                  <span className="text-[9px] font-bold bg-slate-100 text-slate-650 px-1 py-0.2 rounded-sm shrink-0 font-mono">{st.clazz}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 2. Merged Students */}
+                        <div className="bg-white border border-slate-200/80 rounded-lg p-3 flex flex-col space-y-2 h-full">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase text-blue-600 font-extrabold flex items-center gap-1.5">
+                              <RefreshCw size={12} className="animate-spin" style={{ animationDuration: '6s' }} />
+                              Kekal &amp; Digabungkan
+                            </span>
+                            <span className="text-[11px] font-black bg-blue-50 text-blue-800 border border-blue-150 px-1.5 py-0.2 rounded-md font-mono">
+                              {changesPreview.mergedList.length}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 leading-snug">
+                            Murid sedia ada yang ditemui dalam kedua-dua rekod. Markah PPT akan digabungkan ke TOV.
+                          </span>
+                          <div className="max-h-28 overflow-y-auto border border-slate-100 rounded-md p-1.5 bg-slate-50/50 space-y-1 text-[11px]">
+                            {changesPreview.mergedList.length === 0 ? (
+                              <span className="text-slate-400 italic block text-center py-2">Tiada murid sedia ada</span>
+                            ) : (
+                              changesPreview.mergedList.map((st, i) => (
+                                <div key={i} className="flex justify-between items-center bg-white border border-slate-150 p-1 rounded-sm shadow-2xs">
+                                  <span className="font-semibold text-slate-700 truncate max-w-[120px]">{st.name}</span>
+                                  <span className="text-[9px] font-bold bg-slate-100 text-slate-650 px-1 py-0.2 rounded-sm shrink-0 font-mono">{st.clazz}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 3. Removed Students */}
+                        <div className="bg-white border border-slate-200/80 rounded-lg p-3 flex flex-col space-y-2 h-full">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase text-rose-600 font-extrabold flex items-center gap-1.5">
+                              <Trash2 size={12} />
+                              Murid Dipadam (Tiada PPT)
+                            </span>
+                            <span className="text-[11px] font-black bg-rose-50 text-rose-800 border border-rose-150 px-1.5 py-0.2 rounded-md font-mono">
+                              {changesPreview.isPptOrEtrImport && importMode === 'merge' ? `-${changesPreview.removedList.length}` : '0'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 leading-snug">
+                            {changesPreview.isPptOrEtrImport 
+                              ? "Murid lama (TOV) yang tidak hadir dalam fail markah PPT terkini. Sistem akan memadamkannya secara bersih."
+                              : "Hanya terpakai apabila mengimport data PPT / ETR sedia ada."}
+                          </span>
+                          <div className="max-h-28 overflow-y-auto border border-slate-100 rounded-md p-1.5 bg-slate-50/50 space-y-1 text-[11px]">
+                            {importMode !== 'merge' ? (
+                              <span className="text-amber-600 font-medium text-center py-2 block">Dalam mode "Ganti Semua", semua murid lama sedia ada dibuang!</span>
+                            ) : !changesPreview.isPptOrEtrImport ? (
+                              <span className="text-slate-400 italic block text-center py-2">Bukan fail PPT/ETR (Tiada pemadaman murid)</span>
+                            ) : changesPreview.removedList.length === 0 ? (
+                              <span className="text-slate-400 italic block text-center py-2 font-medium">Semua murid TOV hadir di PPT</span>
+                            ) : (
+                              changesPreview.removedList.map((st, i) => (
+                                <div key={i} className="flex justify-between items-center bg-rose-50 border border-rose-150 p-1 rounded-sm shadow-2xs">
+                                  <span className="font-semibold text-rose-700 truncate max-w-[120px]">{st.name}</span>
+                                  <span className="text-[9px] font-bold bg-rose-100 text-rose-650 px-1 py-0.2 rounded-sm shrink-0 font-mono">{st.clazz}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  )}
+
                   {/* Active target fasa feedback information */}
                   <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-150 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-800">
                     <div className="flex items-center gap-2">
@@ -2016,6 +2351,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
 
                     <div className="flex gap-2">
                       <button
+                        type="button"
                         onClick={() => setImportMode('merge')}
                         className={`px-4 py-2 border rounded-lg text-xs font-bold transition-all ${
                           importMode === 'merge' 
@@ -2026,6 +2362,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                         Gabung Dengan Data Sedia Ada
                       </button>
                       <button
+                        type="button"
                         onClick={() => setImportMode('overwrite')}
                         className={`px-4 py-2 border rounded-lg text-xs font-bold transition-all ${
                           importMode === 'overwrite' 
@@ -2035,6 +2372,19 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                       >
                         Set Semula &amp; Ganti Semua
                       </button>
+                    </div>
+                  </div>
+
+                  {/* Smart Tips Info Alert to raise awareness of correct import flow */}
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10.5px] text-amber-900 leading-relaxed font-semibold flex items-start gap-2.5">
+                    <Info size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-extrabold block text-slate-800 uppercase tracking-wide text-[9px] mb-0.5">Panduan Mengelak Data PPT Bertindih Ganti TOV:</span>
+                      Sekiranya anda mengimport fail markah PPT secara berasingan selepas memuat naik fail TOV, sila pastikan:
+                      <ul className="list-disc list-inside mt-1 space-y-0.5 pl-1">
+                        <li>Gunakan kaedah <strong className="font-bold text-slate-800">"Gabung Dengan Data Sedia Ada"</strong> supaya rekod asal tidak terpadam.</li>
+                        <li>Sila pastikan ruangan <strong className="font-bold text-slate-800">Fasa Peperiksaan Sasaran Aktif</strong> memaparkan <strong className="font-bold text-slate-800">PPT (Tengah Tahun)</strong> sebelum menyimpan, agar markah tersebut tidak diletakkan ke dalam ruangan TOV.</li>
+                      </ul>
                     </div>
                   </div>
 
@@ -2098,7 +2448,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                   #
                 </td>
                 <td className="p-2.5 border-r border-slate-300 font-black text-slate-800 bg-slate-200/20">
-                  PEPERIKSAAN PERTENGAHAN TAHUN T4 (PPT)
+                  PEPERIKSAAN PERTENGAHAN TAHUN T5 (PPT)
                 </td>
                 <td className="p-2 border-r border-slate-300 text-center font-bold bg-blue-50/70 text-slate-800">
                   {overallPPT.calon}
@@ -2207,7 +2557,7 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                   const gpmp = totalPresent === 0 ? 0 : parseFloat((totalPoints / totalPresent).toFixed(2));
                   return {
                     counts,
-                    calon: totalPresent,
+                    calon: totalPresent + (subETR.absent || 0),
                     gpmp,
                     absent: subETR.absent
                   };
@@ -2226,8 +2576,15 @@ export default function GredPurataSasaran({ students, subjects, onBackToMain, on
                         </td>
                         <td className="p-2.5 border-r border-slate-250 text-left font-bold text-slate-800 bg-slate-50/40">
                           <div className="flex flex-col">
-                            <span className="font-extrabold text-blue-700 font-sans tracking-tight">{sub.name}</span>
-                            <span className="text-[9px] font-mono font-bold text-slate-450 uppercase">{sub.code} • PPT T4</span>
+                            <span className="font-extrabold text-blue-700 font-sans tracking-tight flex items-center flex-wrap gap-1.5">
+                              {sub.name}
+                              {getExcludedSubjectIds().includes(sub.id) && (
+                                <span className="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 text-[8px] rounded uppercase font-black tracking-wide border border-red-200">
+                                  Dikecualikan GPS
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[9px] font-mono font-bold text-slate-450 uppercase">{sub.code} • PPT T5</span>
                           </div>
                         </td>
                         <td className="p-2 border-r border-slate-250 text-center font-bold bg-blue-50/25 text-slate-700">
